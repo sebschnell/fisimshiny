@@ -51,18 +51,18 @@ shinyServer(function(input, output) {
                                            input$select_sample_size);
 
                      s <- fixed_area(as.matrix(dt_pop()[, list(x_rel, y_rel)]),
-                                     dt_s_loc,
+                                     as.matrix(dt_s_loc[, list(x_sl, y_sl)]),
                                      r = input$select_radius,
                                      k = k);
 
-                     dt_s_tree <- sample_data(dt_pop(), s);
+                     dt_s_tree <- extract_data(dt_pop(), s);
 
                      if (input$select_edge == "wt") {
                        idx_wt <- edge_corr_wt(dt_s_tree, dt_s_loc, pop_border());
                        dt_s_tree[idx_wt, f_edge := 2];
                      }
 
-                     dt_s_plot <- plot_data(dt_s_tree, target_vars = input$select_var);
+                     dt_s_plot <- sum_data(dt_s_tree, target_vars = input$select_var);
 
                      dt_est <- est_srs(dt_s_plot);
                      r_start <- cnt*length(input$select_var) + 1L;
@@ -84,10 +84,10 @@ shinyServer(function(input, output) {
                           input$select_sample_size);
 
     s <- fixed_area(as.matrix(dt_pop()[, list(x_rel, y_rel)]),
-                    dt_s_loc,
+                    as.matrix(dt_s_loc[, list(x_sl, y_sl)]),
                     r = input$select_radius);
 
-    dt_s_tree <- sample_data(dt_pop(), s);
+    dt_s_tree <- extract_data(dt_pop(), s);
 
     dt_pop()[!dt_s_tree[, stem_id],
              plot(x_rel, y_rel, asp = 1, axes = FALSE, ann = FALSE, pch = 1,
@@ -95,7 +95,7 @@ shinyServer(function(input, output) {
                   mai = c(0, 0, 0, 0))];
     dt_pop()[dt_s_tree[, stem_id],
              points(x_rel, y_rel, pch = 16)];
-    dt_s_loc[, points(x_u, y_u, pch = 4)];
+    dt_s_loc[, points(x_sl, y_sl, pch = 4)];
   });
 
   output$estimates <- renderTable({
