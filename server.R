@@ -10,6 +10,10 @@
 library(shiny);
 library(ggplot2);
 library(fisim);
+library(maptools);
+library(spatstat);
+library(sp);
+
 
 # Helper function for loading data from http://stackoverflow.com/questions/30951204/load-dataset-from-r-package-using-data-assign-it-directly-to-a-variable
 get_data <- function(x) {
@@ -21,69 +25,76 @@ get_data <- function(x) {
 # Define server logic
 shinyServer(function(input, output) {
 
-  dt_pop <- reactive({
+  pop <- reactive({
     get_data(input$select_pop);
-  });
-
-  pop_border <- reactive({
-    get_data(paste(input$select_pop, "_border", sep = ""));
   });
 
   dt_sim_res <- reactiveValues();
   observeEvent(input$start_sim,{
 
-    dens <- est_density(as.matrix(dt_pop()[, list(x_rel, y_rel)]));
-    k <- ceiling(dens$max*pi*input$select_radius^2*2);
-
     withProgress(message = "Running simulation",
                  min = 0, max = 100,
                  expr = {
-                   dt_s_loc <- xy_sample(dt_pop()[, range(x_rel)],
-                                         dt_pop()[, range(y_rel)],
-                                         n = input$select_sample_size,
-                                         M = input$select_sim_steps);
+                   s_loc <- xy_sample(pop()$boundary,
+                                      n = input$select_sample_size,
+                                      M = input$select_sim_steps,
+                                      method = input$select_sampling_design);
 
-                   s <- fixed_area(as.matrix(dt_pop()[, list(x_rel, y_rel)]),
-                                   as.matrix(dt_s_loc[, list(x_pt, y_pt)]),
-                                   r = input$select_radius,
-                                   k = k,
-                                   n = input$select_sample_size,
-                                   M = input$select_sim_steps);
-
-                   dt_s_tree <- extract_data(dt_pop(), s);
-
-                   if (input$select_edge == "wt") {
-                     idx_wt <- edge_corr_wt(dt_s_tree, dt_s_loc, pop_border());
-                     dt_s_tree[idx_wt, f_edge := 2];
+                   if (input$select_r_design == "fixed_area") {
+                     idx_tree <- fixed_area(tree_pop = pop(),
+                                            sample_loc = s_loc,
+                                            r = input$select_radius);
+                   } else if (input$select_r_design == "angle_count") {
+                     idx_tree <- angle_count(tree_pop = pop(),
+                                             sample_loc = s_loc,
+                                             baf = input$select_baf);
+                   } else if (input$select_r_design == "k_tree") {
+                     idx_tree <- k_tree(tree_pop = pop(),
+                                        sample_loc = s_loc,
+                                        k = input$select_k);
                    }
 
-                   dt_s_plot <- sum_data(dt_s_tree, target_vars = input$select_var);
+                   s_tree <- extract_data(pop(), idx_tree);
+
+                   if (input$select_edge == "wt") {
+                     s_tree <- edge_corr_wt(tree_pop = pop(),
+                                            tree_sample = s_tree,
+                                            sample_loc = s_loc);
+                   }
+
+                   s_plot <- sum_data(s_tree, target_vars = input$select_var);
                  });
 
-    dt_sim_res$a <- est_srs(dt_s_plot);
+    dt_sim_res$a <- est_srs(s_plot);
   });
 
   output$stand <- renderPlot({
-    dt_s_loc <- xy_sample(dt_pop()[, range(x_rel)],
-                          dt_pop()[, range(y_rel)],
-                          n = input$select_sample_size,
-                          M = 1);
+    s_loc <- xy_sample(pop()$boundary,
+                       n = input$select_sample_size,
+                       M = 1,
+                       method = input$select_sampling_design);
 
-    s <- fixed_area(as.matrix(dt_pop()[, list(x_rel, y_rel)]),
-                    as.matrix(dt_s_loc[, list(x_pt, y_pt)]),
-                    r = input$select_radius,
-                    n = input$select_sample_size,
-                    M = 1);
+    if (input$select_r_design == "fixed_area") {
+      idx_tree <- fixed_area(tree_pop = pop(),
+                             sample_loc = s_loc,
+                             r = input$select_radius);
+    } else if (input$select_r_design == "angle_count") {
+      idx_tree <- angle_count(tree_pop = pop(),
+                              sample_loc = s_loc,
+                              baf = input$select_baf);
+    } else if (input$select_r_design == "k_tree") {
+      idx_tree <- k_tree(tree_pop = pop(),
+                         sample_loc = s_loc,
+                         k = input$select_k);
+    }
 
-    dt_s_tree <- extract_data(dt_pop(), s);
+    s_tree <- extract_data(tree_pop = pop(), response = idx_tree);
 
-    dt_pop()[!dt_s_tree[, stem_id],
-             plot(x_rel, y_rel, asp = 1, axes = FALSE, ann = FALSE, pch = 1,
-                  xlim = range(x_rel), ylim = range(y_rel),
-                  mai = c(0, 0, 0, 0))];
-    dt_pop()[dt_s_tree[, stem_id],
-             points(x_rel, y_rel, pch = 16)];
-    dt_s_loc[, points(x_pt, y_pt, pch = 4)];
+    pop()$data[, plot(x_tree, y_tree, asp = 1, axes = FALSE, ann = FALSE, pch = 1,
+                      xlim = range(x_tree), ylim = range(y_tree),
+                      mai = c(0, 0, 0, 0))];
+    s_tree$data[, points(x_tree, y_tree, pch = 16)];
+    s_loc$data[, points(x_s, y_s, pch = 4)];
   });
 
   output$estimates <- renderTable({
@@ -91,13 +102,13 @@ shinyServer(function(input, output) {
                  list(y_hat = mean(y_hat),
                       v_emp = var(y_hat),
                       v_hat = mean(v_hat)),
-                 by = variable];
+                 by = list(variable, est_appr)];
   });
 
   output$distribution <- renderPlot({
     ggplot(dt_sim_res$a, aes(y_hat)) +
       geom_line(stat = 'density') +
-      facet_wrap( ~ variable, scales = "free", ncol = 2) +
+      facet_grid(est_appr ~ variable, scales = "free") +
       theme_light()
   });
 })
