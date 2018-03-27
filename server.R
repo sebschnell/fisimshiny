@@ -97,6 +97,7 @@ shinyServer(function(input, output) {
     s_loc$data[, points(x_s, y_s, pch = 4)];
   });
 
+
   output$estimates <- renderTable({
     dt_sim_res$a[,
                  list(y_hat = mean(y_hat),
@@ -106,9 +107,13 @@ shinyServer(function(input, output) {
   });
 
   output$distribution <- renderPlot({
+    A <- sum(extract_area(hberg_beech$boundary))/10000;
+    dt_y <- data.table(variable = input$select_var,
+                       y = pop()$data[, sapply(.SD, sum), .SDcols = input$select_var]/A);
     ggplot(dt_sim_res$a, aes(y_hat)) +
-      geom_line(stat = 'density') +
+      geom_freqpoly() +
       facet_grid(est_appr ~ variable, scales = "free") +
+      geom_vline(aes(xintercept = y), dt_y) +
       theme_light()
   });
 })
